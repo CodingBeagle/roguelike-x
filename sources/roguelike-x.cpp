@@ -1,12 +1,20 @@
 ﻿// SDL_main should only be included from a single file
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_version.h>
 #include <SDL3/SDL_log.h>
 
 #include "roguelike-x.h"
 
+#include <vulkan/vulkan.h>
+
+#include <VkBootstrap.h>
+
 using namespace std;
 
 void panic_and_exit(const char* error_message, ...);
+
+VkInstance vk_instance;
+VkDebugUtilsMessengerEXT vk_debug_messenger;
 
 int main(int argc, char** argv)
 {
@@ -18,12 +26,32 @@ int main(int argc, char** argv)
 		exit(1);
 	}
 
+	auto sdl_version = SDL_GetVersion();
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Initialized SDL with version: %i\n", sdl_version);
+
 	SDL_SetAppMetadata("Roguelike-X", "1.0", NULL);
 
+	// Creating a window with SDL_WINDOW_VULKAN means that the corresponding LoadLibrary function will be called.
+	// The corresponding UnloadLibrary function will also be called by SDL_DestroyWindow()
 	auto main_window = SDL_CreateWindow("Roguelike-X", 800, 600, SDL_WINDOW_VULKAN);
 	if (main_window == NULL) {
 		panic_and_exit("Could not create window: %s\n", SDL_GetError());
 	}
+
+	// Initialize Vulkan
+	vkb::InstanceBuilder builder;
+
+	// Make the Vulkan instance with basic debug features
+	auto instance_build_result = builder.set_app_name("roguelike-x")
+		.request_validation_layers(true)
+		.use_default_debug_messenger()
+		.require_api_version(1, 3, 0)
+		.build();
+
+	vkb::Instance vkb_instance = instance_build_result.value();
+
+	vk_instance = vkb_instance.instance;
+	vk_debug_messenger = vkb_instance.debug_messenger;
 
 	// Game Loop
 	bool should_quit = false;

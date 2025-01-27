@@ -22,10 +22,18 @@ set_target_properties(SDL3::SDL3 PROPERTIES
 
 target_include_directories(SDL3::SDL3 INTERFACE "${CMAKE_CURRENT_LIST_DIR}/includes")
 
+# Link Vulkan
+find_package(Vulkan REQUIRED)
+
 # Add source to this project's executable.
-add_executable (roguelike-x "sources/roguelike-x.cpp" "sources/roguelike-x.h")
+add_executable (roguelike-x "sources/roguelike-x.cpp" "sources/roguelike-x.h"  "includes/VkBootstrap.h" "sources/VkBootstrap.cpp" "includes/VkBootstrapDispatch.h")
+
+if (CMAKE_VERSION VERSION_GREATER 3.12)
+  set_property(TARGET roguelike-x PROPERTY CXX_STANDARD 20)
+endif()
 
 target_link_libraries(roguelike-x PRIVATE SDL3::SDL3)
+target_link_libraries(roguelike-x PRIVATE Vulkan::Vulkan)
 
 # Copy the DLL to the .EXE output dir so that Windows can load the runtime
 add_custom_command(
@@ -35,7 +43,3 @@ add_custom_command(
             "$<TARGET_FILE_DIR:roguelike-x>"
     COMMENT "Copying SDL3.dll to output directory"
 )
-
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET roguelike-x PROPERTY CXX_STANDARD 20)
-endif()
