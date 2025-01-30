@@ -145,6 +145,9 @@ int main(int argc, char** argv)
 	}
 
 	// Vulkan cleanup
+	// The order in which you destroy resources matter.
+	// A good rule of thumb is: Create resources in the opposite order they were created.
+	// Physical devices cannot be destroyed as they are not a Vulkan resource, more a handle to the GPU in the system.
 
 	// Destroy swapchain
 	vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
