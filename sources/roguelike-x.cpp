@@ -1,7 +1,10 @@
-﻿// SDL_main should only be included from a single file
+﻿#include <vector>
+
+// SDL_main should only be included from a single file
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_version.h>
 #include <SDL3/SDL_log.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include "roguelike-x.h"
 
@@ -15,6 +18,18 @@ void panic_and_exit(const char* error_message, ...);
 
 VkInstance vk_instance;
 VkDebugUtilsMessengerEXT vk_debug_messenger;
+
+VkSurfaceKHR vk_surface;
+
+VkDevice vk_device;
+VkPhysicalDevice vk_physical_device;
+
+VkSwapchainKHR vk_swapchain;
+VkFormat vk_swapchain_image_format;
+
+std::vector<VkImage> vk_swapchain_images;
+std::vector<VkImageView> vk_swapchain_imageviews;
+VkExtent2D vk_swapchain_extent;
 
 int main(int argc, char** argv)
 {
@@ -39,9 +54,9 @@ int main(int argc, char** argv)
 	}
 
 	// Initialize Vulkan
+	// Make the Vulkan instance with basic debug features
 	vkb::InstanceBuilder builder;
 
-	// Make the Vulkan instance with basic debug features
 	auto instance_build_result = builder.set_app_name("roguelike-x")
 		.request_validation_layers(true)
 		.use_default_debug_messenger()
@@ -52,6 +67,63 @@ int main(int argc, char** argv)
 
 	vk_instance = vkb_instance.instance;
 	vk_debug_messenger = vkb_instance.debug_messenger;
+
+	// A Surface represents and abstract handle to a native platform window which can be rendered to.
+	// We create a surface for our SDL window, which we will render to.
+	SDL_Vulkan_CreateSurface(main_window, vk_instance, nullptr, &vk_surface);
+
+	// Vulkan 1.3 features
+	VkPhysicalDeviceVulkan13Features features_13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+	features_13.dynamicRendering = true;
+	features_13.synchronization2 = true;
+
+	// Vulkan 1.2 features
+	VkPhysicalDeviceVulkan12Features features_12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+	features_12.bufferDeviceAddress = true;
+	features_12.descriptorIndexing = true;
+
+	// We use VkBootstrap to select a GPU
+	// We want a GPU that can write to the SDL surface and supports Vulkan 1.3 with the correct features
+	vkb::PhysicalDeviceSelector selector{ vkb_instance };
+	vkb::PhysicalDevice physicalDevice = selector
+		.set_minimum_version(1, 3)
+		.set_required_features_13(features_13)
+		.set_required_features_12(features_12)
+		.set_surface(vk_surface)
+		.select()
+		.value();
+
+	// Create the final vulkan device
+	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
+	vkb::Device vkbDevice = deviceBuilder.build().value();
+
+	vk_device = vkbDevice.device;
+	vk_physical_device = physicalDevice.physical_device;
+
+	// Create Vulkan swapchain
+	vkb::SwapchainBuilder swapchainBuilder{
+		vk_physical_device,
+		vk_device,
+		vk_surface
+	};
+
+	vk_swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
+
+	vkb::Swapchain vkbSwapchain = swapchainBuilder
+		.set_desired_format(VkSurfaceFormatKHR{
+			.format = vk_swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR })
+		// Use vsync present mode
+		// This will limit FPS to the refresh rate of the monitor
+		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+		.set_desired_extent(800, 600)
+		.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+		.build()
+		.value();
+
+	vk_swapchain_extent = vkbSwapchain.extent;
+	vk_swapchain = vkbSwapchain.swapchain;
+	vk_swapchain_images = vkbSwapchain.get_images().value();
+	vk_swapchain_imageviews = vkbSwapchain.get_image_views().value();
 
 	// Game Loop
 	bool should_quit = false;
@@ -71,6 +143,26 @@ int main(int argc, char** argv)
 			}
 		}
 	}
+
+	// Vulkan cleanup
+
+	// Destroy swapchain
+	vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
+	for (int i = 0; i < vk_swapchain_imageviews.size(); i++) {
+		vkDestroyImageView(vk_device, vk_swapchain_imageviews[i], nullptr);
+	}
+
+	// Destroy surface
+	vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr);
+
+	// Destroy device
+	vkDestroyDevice(vk_device, nullptr);
+
+	// Destroy debug messenger
+	vkb::destroy_debug_utils_messenger(vk_instance, vk_debug_messenger);
+
+	// Destroy instance
+	vkDestroyInstance(vk_instance, nullptr);
 
 	// Close and destroy the window
 	SDL_DestroyWindow(main_window);
