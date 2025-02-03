@@ -20,6 +20,9 @@ void vk_check(VkResult vkResult);
 struct FrameData {
 	VkCommandPool commandPool;
 	VkCommandBuffer commandBuffer;
+	VkSemaphore swapchain_semaphore;
+	VkSemaphore render_semaphore;
+	VkFence render_fence;
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
@@ -171,6 +174,25 @@ int main(int argc, char** argv)
 		vk_check(vkAllocateCommandBuffers(vk_device, &cmdAllocInfo, &frames[i].commandBuffer));
 	}
 
+	// Create synchronization structures for our frame data structs
+	// One fence to control when the GPU has finished rendering the frame
+	// 2 semaphores to synchronize rendering with swapchain
+	VkFenceCreateInfo fenceCreateInfo{};
+	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fenceCreateInfo.pNext = nullptr;
+	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+	VkSemaphoreCreateInfo semaphoreCreateInfo{};
+	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	semaphoreCreateInfo.pNext = nullptr;
+
+	for (int i = 0; i < FRAME_OVERLAP; i++) {
+		vk_check(vkCreateFence(vk_device, &fenceCreateInfo, nullptr, &frames[i].render_fence));
+
+		vk_check(vkCreateSemaphore(vk_device, &semaphoreCreateInfo, nullptr, &frames[i].swapchain_semaphore));
+		vk_check(vkCreateSemaphore(vk_device, &semaphoreCreateInfo, nullptr, &frames[i].render_semaphore));
+	}
+
 	// Game Loop
 	bool should_quit = false;
 	while (!should_quit) {
@@ -188,6 +210,27 @@ int main(int argc, char** argv)
 					break;
 			}
 		}
+
+		// Drawing
+		// Wait until the GPU has finished rendering the last frame. Timeout of 1 second
+		vk_check(vkWaitForFences(vk_device, 1, &get_current_frame().render_fence, true, 1000000000));
+
+		// Fences have to be reset between uses, you can't use the same fence on multiple GPU commands without resetting
+		vk_check(vkResetFences(vk_device, 1, &get_current_frame().render_fence));
+
+		// Request image from the swapchain to draw to
+		// vkAcquireNextImageKHR will request an image index from the swapchain.
+		// If the swapchain doesn't have an image we can use, it will block the thread with a maximum timeout.
+		uint32_t swapchain_image_index;
+		vk_check(vkAcquireNextImageKHR(
+			vk_device,
+			vk_swapchain,
+			1000000000,
+			get_current_frame().swapchain_semaphore,
+			nullptr,
+			&swapchain_image_index));
+
+		// Record rendering commands
 	}
 
 	// Vulkan cleanup
@@ -197,6 +240,13 @@ int main(int argc, char** argv)
 
 	// Wait for the GPU to stop doing its thing
 	vkDeviceWaitIdle(vk_device);
+
+	// Destroy fences and semaphores
+	for (int i = 0; i < FRAME_OVERLAP; i++) {
+		vkDestroyFence(vk_device, frames[i].render_fence, nullptr);
+		vkDestroySemaphore(vk_device, frames[i].render_semaphore, nullptr);
+		vkDestroySemaphore(vk_device, frames[i].swapchain_semaphore, nullptr);
+	}
 
 	// Destroy command pool
 	// Destroying the command pool will destroy associated command buffers
