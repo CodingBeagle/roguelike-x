@@ -15,6 +15,14 @@
 using namespace std;
 
 void panic_and_exit(const char* error_message, ...);
+void vk_check(VkResult vkResult);
+
+struct FrameData {
+	VkCommandPool commandPool;
+	VkCommandBuffer commandBuffer;
+};
+
+constexpr unsigned int FRAME_OVERLAP = 2;
 
 VkInstance vk_instance;
 VkDebugUtilsMessengerEXT vk_debug_messenger;
@@ -30,6 +38,13 @@ VkFormat vk_swapchain_image_format;
 std::vector<VkImage> vk_swapchain_images;
 std::vector<VkImageView> vk_swapchain_imageviews;
 VkExtent2D vk_swapchain_extent;
+
+FrameData frames[FRAME_OVERLAP];
+int frame_number{ 0 };
+FrameData& get_current_frame() { return frames[frame_number & FRAME_OVERLAP]; };
+
+VkQueue graphics_queue;
+uint32_t graphics_queue_family;
 
 int main(int argc, char** argv)
 {
@@ -125,6 +140,37 @@ int main(int argc, char** argv)
 	vk_swapchain_images = vkbSwapchain.get_images().value();
 	vk_swapchain_imageviews = vkbSwapchain.get_image_views().value();
 
+	// Get queue that supports all types of commands
+	graphics_queue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+	graphics_queue_family = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+	// Initialize command structures
+	// Create a command pool for commands submitted to the graphics queue
+	// We also want the pool to allow for resetting of individual command buffers
+	
+	// Notice that for Vulkan, it is a good practice to start by initializing the entire Vk struct to zero with {}
+	// This ensures that the struct is in a relatively safe state for all its members.
+	VkCommandPoolCreateInfo commandPoolInfo = {};
+	commandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolInfo.pNext = nullptr;
+	commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	// The command pool will create commands that are compatible with the "graphics" family type of queues
+	commandPoolInfo.queueFamilyIndex = graphics_queue_family;
+
+	for (int i = 0; i < FRAME_OVERLAP; i++) {
+		vk_check(vkCreateCommandPool(vk_device, &commandPoolInfo, nullptr, &frames[i].commandPool));
+
+		// Allocate the default command buffer that we will use for rendering
+		VkCommandBufferAllocateInfo cmdAllocInfo {};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.pNext = nullptr;
+		cmdAllocInfo.commandPool = frames[i].commandPool;
+		cmdAllocInfo.commandBufferCount = 1;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+		vk_check(vkAllocateCommandBuffers(vk_device, &cmdAllocInfo, &frames[i].commandBuffer));
+	}
+
 	// Game Loop
 	bool should_quit = false;
 	while (!should_quit) {
@@ -148,6 +194,15 @@ int main(int argc, char** argv)
 	// The order in which you destroy resources matter.
 	// A good rule of thumb is: Create resources in the opposite order they were created.
 	// Physical devices cannot be destroyed as they are not a Vulkan resource, more a handle to the GPU in the system.
+
+	// Wait for the GPU to stop doing its thing
+	vkDeviceWaitIdle(vk_device);
+
+	// Destroy command pool
+	// Destroying the command pool will destroy associated command buffers
+	for (int i = 0; i < FRAME_OVERLAP; i++) {
+		vkDestroyCommandPool(vk_device, frames[i].commandPool, nullptr);
+	}
 
 	// Destroy swapchain
 	vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
@@ -177,8 +232,16 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+// TODO: Perhaps make a safer escape that first attempts to clean up vulkan resources
 void panic_and_exit(const char* error_message, ...) {
 	SDL_LogCritical(SDL_LOG_CATEGORY_ERROR, "Application is panicking and exiting!");
 	SDL_LogCritical(SDL_LOG_CATEGORY_ERROR, error_message);
 	exit(1);
+}
+
+void vk_check(VkResult vkResult) {
+	if (vkResult != VK_SUCCESS) {
+		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Detected vulkan error: %s", vkResult);
+		exit(1);
+	}
 }
