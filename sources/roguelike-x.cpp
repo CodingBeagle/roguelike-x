@@ -19,7 +19,7 @@ void vk_check(VkResult vkResult);
 
 struct FrameData {
 	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
+	VkCommandBuffer main_command_buffer;
 	VkSemaphore swapchain_semaphore;
 	VkSemaphore render_semaphore;
 	VkFence render_fence;
@@ -48,6 +48,9 @@ FrameData& get_current_frame() { return frames[frame_number & FRAME_OVERLAP]; };
 
 VkQueue graphics_queue;
 uint32_t graphics_queue_family;
+
+VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask);
+void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout);
 
 int main(int argc, char** argv)
 {
@@ -171,7 +174,7 @@ int main(int argc, char** argv)
 		cmdAllocInfo.commandBufferCount = 1;
 		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-		vk_check(vkAllocateCommandBuffers(vk_device, &cmdAllocInfo, &frames[i].commandBuffer));
+		vk_check(vkAllocateCommandBuffers(vk_device, &cmdAllocInfo, &frames[i].main_command_buffer));
 	}
 
 	// Create synchronization structures for our frame data structs
@@ -221,6 +224,7 @@ int main(int argc, char** argv)
 		// Request image from the swapchain to draw to
 		// vkAcquireNextImageKHR will request an image index from the swapchain.
 		// If the swapchain doesn't have an image we can use, it will block the thread with a maximum timeout.
+		// We pass the frames swapchain semaphore so we can use it so sync with other operations later
 		uint32_t swapchain_image_index;
 		vk_check(vkAcquireNextImageKHR(
 			vk_device,
@@ -231,6 +235,24 @@ int main(int argc, char** argv)
 			&swapchain_image_index));
 
 		// Record rendering commands
+		VkCommandBuffer cmd = get_current_frame().main_command_buffer;
+
+		// A command buffer has to be reset before we can use it again
+		vk_check(vkResetCommandBuffer(cmd, 0));
+
+		// Begin the command buffer recording.
+		// We will use this command buffer exactly once, which we will let Vulkan know
+		VkCommandBufferBeginInfo cmd_begin_info{};
+		cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		cmd_begin_info.pNext = nullptr;
+		cmd_begin_info.pInheritanceInfo = nullptr;
+		cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		// Start command buffer recording
+		vk_check(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+		// Make the swapchain image into writeable mode before rendering
+		transition_image(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 	}
 
 	// Vulkan cleanup
@@ -291,7 +313,56 @@ void panic_and_exit(const char* error_message, ...) {
 
 void vk_check(VkResult vkResult) {
 	if (vkResult != VK_SUCCESS) {
-		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Detected vulkan error: %s", vkResult);
+		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Detected vulkan error: %i", vkResult);
 		exit(1);
 	}
+}
+
+void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout) {
+	VkImageMemoryBarrier2 image_barrier{};
+	image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	image_barrier.pNext = nullptr;
+	
+	// Specify the pipeline stages where memory operations must complete before the transition
+	// VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT = All commands in the pipeline should be completed.
+	image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+	// Any previous write operations have to complete before transitioning the image.
+	image_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+	// After transition, any command can use the image
+	image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+	// After transition, both read and write access is allowed
+	image_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+	// Describe the transition
+	image_barrier.oldLayout = currentLayout;
+	image_barrier.newLayout = newLayout;
+
+	VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ?
+		VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+	image_barrier.subresourceRange = image_subresource_range(aspectMask);
+	image_barrier.image = image;
+
+	VkDependencyInfo depInfo{};
+	depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	depInfo.pNext = nullptr;
+
+	depInfo.imageMemoryBarrierCount = 1;
+	depInfo.pImageMemoryBarriers = &image_barrier;
+
+	vkCmdPipelineBarrier2(cmd, &depInfo);
+}
+
+VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask) {
+	VkImageSubresourceRange subImage{};
+	subImage.aspectMask = aspectMask;
+	subImage.baseMipLevel = 0;
+	subImage.levelCount = VK_REMAINING_MIP_LEVELS;
+	subImage.baseArrayLayer = 0;
+	subImage.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+	return subImage;
 }
