@@ -44,13 +44,17 @@ VkExtent2D vk_swapchain_extent;
 
 FrameData frames[FRAME_OVERLAP];
 int frame_number{ 0 };
-FrameData& get_current_frame() { return frames[frame_number & FRAME_OVERLAP]; };
+FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; }
 
 VkQueue graphics_queue;
 uint32_t graphics_queue_family;
 
 VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask);
 void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout);
+
+VkSemaphoreSubmitInfo semaphore_submit_info(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore);
+VkCommandBufferSubmitInfo command_buffer_submit_info(VkCommandBuffer cmd);
+VkSubmitInfo2 submit_info(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* signalSemaphoreInfo, VkSemaphoreSubmitInfo* waitSemaphoreInfo);
 
 int main(int argc, char** argv)
 {
@@ -252,7 +256,63 @@ int main(int argc, char** argv)
 		vk_check(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
 		// Make the swapchain image into writeable mode before rendering
+		// VK_IMAGE_LAYOUT_UNDEFINED = "we dont care" layout. You can use it to indicate you don't care about the current data
+		// in the image, and that you are fine with the GPU destroying it.
+		// VK_IMAGE_LAYOUT_GENERAL = General purpose layout allowing reading and writing from the image.
 		transition_image(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+		// Make a clear-color from frame number. This will flash with a 120 frame period.
+		VkClearColorValue clearValue;
+		float flash = std::abs(std::sin(frame_number / 120.f));
+		clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
+
+		VkImageSubresourceRange clearRange = image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+
+		// Clear image
+		vkCmdClearColorImage(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+		// Make the swapchain image into presentable mode
+		// VK_IMAGE_LAYOUT_PRESENT_SRC_KHR = The only image layout the swapchain allows for presenting to the screen.
+		transition_image(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+		// Finalize the command buffer (we can no longer add commands, but it can now be executed)
+		vk_check(vkEndCommandBuffer(cmd));
+
+		// Prepare the submission to the queue.
+		// We want to wait on the presentSemaphore, as that semaphore is signaled when the swapchain is ready
+		// We will signal the renderSemaphore, to singal that rendering has finished
+
+		VkCommandBufferSubmitInfo cmdInfo = command_buffer_submit_info(cmd);
+
+		VkSemaphoreSubmitInfo waitInfo = semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, get_current_frame().swapchain_semaphore);
+		VkSemaphoreSubmitInfo signalInfo = semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, get_current_frame().render_semaphore);
+
+		VkSubmitInfo2 submit = submit_info(&cmdInfo, &signalInfo, &waitInfo);
+
+		// Submit command buffer to the queue and execute it
+		// renderFence will now block until the graphic commands finish execution
+		vk_check(vkQueueSubmit2(graphics_queue, 1, &submit, get_current_frame().render_fence));
+
+		// Prepare present
+		// This will put the image we just rendered to into the visible window.
+		// We want to wait on the renderSemaphore for that,
+		// As its necessary that drawing commands have finished before the image is displayed to the user
+		VkPresentInfoKHR presentInfo{};
+		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+		presentInfo.pNext = nullptr;
+
+		presentInfo.pSwapchains = &vk_swapchain;
+		presentInfo.swapchainCount = 1;
+
+		presentInfo.pWaitSemaphores = &get_current_frame().render_semaphore;
+		presentInfo.waitSemaphoreCount = 1;
+
+		presentInfo.pImageIndices = &swapchain_image_index;
+
+		vk_check(vkQueuePresentKHR(graphics_queue, &presentInfo));
+
+		// increase the number of frames drawn
+		frame_number++;
 	}
 
 	// Vulkan cleanup
@@ -274,6 +334,11 @@ int main(int argc, char** argv)
 	// Destroying the command pool will destroy associated command buffers
 	for (int i = 0; i < FRAME_OVERLAP; i++) {
 		vkDestroyCommandPool(vk_device, frames[i].commandPool, nullptr);
+
+		// Destroy sync objects
+		vkDestroyFence(vk_device, frames[i].render_fence, nullptr);
+		vkDestroySemaphore(vk_device, frames[i].render_semaphore, nullptr);
+		vkDestroySemaphore(vk_device, frames[i].swapchain_semaphore, nullptr);
 	}
 
 	// Destroy swapchain
@@ -305,20 +370,23 @@ int main(int argc, char** argv)
 }
 
 // TODO: Perhaps make a safer escape that first attempts to clean up vulkan resources
-void panic_and_exit(const char* error_message, ...) {
+void panic_and_exit(const char* error_message, ...) 
+{
 	SDL_LogCritical(SDL_LOG_CATEGORY_ERROR, "Application is panicking and exiting!");
 	SDL_LogCritical(SDL_LOG_CATEGORY_ERROR, error_message);
 	exit(1);
 }
 
-void vk_check(VkResult vkResult) {
+void vk_check(VkResult vkResult) 
+{
 	if (vkResult != VK_SUCCESS) {
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Detected vulkan error: %i", vkResult);
 		exit(1);
 	}
 }
 
-void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout) {
+void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout) 
+{
 	VkImageMemoryBarrier2 image_barrier{};
 	image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 	image_barrier.pNext = nullptr;
@@ -356,7 +424,8 @@ void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentL
 	vkCmdPipelineBarrier2(cmd, &depInfo);
 }
 
-VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask) {
+VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask) 
+{
 	VkImageSubresourceRange subImage{};
 	subImage.aspectMask = aspectMask;
 	subImage.baseMipLevel = 0;
@@ -365,4 +434,48 @@ VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask) {
 	subImage.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
 	return subImage;
+}
+
+VkSemaphoreSubmitInfo semaphore_submit_info(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore) 
+{
+	VkSemaphoreSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	submitInfo.pNext = nullptr;
+	submitInfo.semaphore = semaphore;
+	submitInfo.stageMask = stageMask;
+	submitInfo.deviceIndex = 0;
+	submitInfo.value = 1;
+
+	return submitInfo;
+}
+
+VkCommandBufferSubmitInfo command_buffer_submit_info(VkCommandBuffer cmd) 
+{
+	VkCommandBufferSubmitInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+	info.pNext = nullptr;
+	info.commandBuffer = cmd;
+	info.deviceMask = 0;
+
+	return info;
+}
+
+VkSubmitInfo2 submit_info(VkCommandBufferSubmitInfo* cmd,
+	VkSemaphoreSubmitInfo* signalSemaphoreInfo,
+	VkSemaphoreSubmitInfo* waitSemaphoreInfo) 
+{
+	VkSubmitInfo2 info = {};
+	info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+	info.pNext = nullptr;
+
+	info.waitSemaphoreInfoCount = waitSemaphoreInfo == nullptr ? 0 : 1;
+	info.pWaitSemaphoreInfos = waitSemaphoreInfo;
+
+	info.signalSemaphoreInfoCount = signalSemaphoreInfo == nullptr ? 0 : 1;
+	info.pSignalSemaphoreInfos = signalSemaphoreInfo;
+
+	info.commandBufferInfoCount = 1;
+	info.pCommandBufferInfos = cmd;
+
+	return info;
 }
