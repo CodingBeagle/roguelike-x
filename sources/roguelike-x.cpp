@@ -230,7 +230,11 @@ int main(int argc, char** argv)
 		// Request image from the swapchain to draw to
 		// vkAcquireNextImageKHR will request an image index from the swapchain.
 		// If the swapchain doesn't have an image we can use, it will block the thread with a maximum timeout.
-		// We pass the frames swapchain semaphore so we can use it so sync with other operations later
+		// We pass the frames swapchain semaphore so we can use it so sync with other operations later.
+		// The Semaphore will be signalled once the image is acquired.
+		// Even though an image index is returned at the time of this call, it might still not be ready for use.
+		// By providing a semaphore, we can use this semaphore as a wait signal when submitting the command buffer to the queue,
+		// Which will guarentee that the command buffer will first start execution once the swapchain image is actually ready for use.
 		uint32_t swapchain_image_index;
 		vk_check(vkAcquireNextImageKHR(
 			vk_device,
