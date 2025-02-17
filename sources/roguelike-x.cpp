@@ -163,10 +163,12 @@ int main(int argc, char** argv)
 	VkCommandPoolCreateInfo commandPoolInfo = {};
 	commandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	commandPoolInfo.pNext = nullptr;
+	// Each command buffer created can be reset independently
 	commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	// The command pool will create commands that are compatible with the "graphics" family type of queues
+	// The command pool will create command buffers that are compatible with the "graphics" family type of queues
 	commandPoolInfo.queueFamilyIndex = graphics_queue_family;
 
+	// Create a command pool for each frame
 	for (int i = 0; i < FRAME_OVERLAP; i++) {
 		vk_check(vkCreateCommandPool(vk_device, &commandPoolInfo, nullptr, &frames[i].commandPool));
 
