@@ -287,7 +287,6 @@ int main(int argc, char** argv)
 		// Prepare the submission to the queue.
 		// We want to wait on the presentSemaphore, as that semaphore is signaled when the swapchain is ready
 		// We will signal the renderSemaphore, to singal that rendering has finished
-
 		VkCommandBufferSubmitInfo cmdInfo = command_buffer_submit_info(cmd);
 
 		VkSemaphoreSubmitInfo waitInfo = semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, get_current_frame().swapchain_semaphore);
@@ -328,13 +327,6 @@ int main(int argc, char** argv)
 
 	// Wait for the GPU to stop doing its thing
 	vkDeviceWaitIdle(vk_device);
-
-	// Destroy fences and semaphores
-	for (int i = 0; i < FRAME_OVERLAP; i++) {
-		vkDestroyFence(vk_device, frames[i].render_fence, nullptr);
-		vkDestroySemaphore(vk_device, frames[i].render_semaphore, nullptr);
-		vkDestroySemaphore(vk_device, frames[i].swapchain_semaphore, nullptr);
-	}
 
 	// Destroy command pool
 	// Destroying the command pool will destroy associated command buffers
