@@ -1,5 +1,11 @@
 #include <vk_pipelines.h>
 
+void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
+{
+	_inputAssembly.topology = topology;
+	_inputAssembly.primitiveRestartEnable = VK_FALSE;
+}
+
 void PipelineBuilder::set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader)
 {
 	_shaderStages.clear();

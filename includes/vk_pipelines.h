@@ -24,6 +24,7 @@ class PipelineBuilder {
 		clear();
 	}
 
+	void set_input_topology(VkPrimitiveTopology topology);
 	void set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader);
 
 	void clear();
