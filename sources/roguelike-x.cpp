@@ -49,12 +49,17 @@ FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; }
 VkQueue graphics_queue;
 uint32_t graphics_queue_family;
 
+VkPipelineLayout _trianglePipelineLayout;
+VkPipeline _trianglePipeline;
+
 VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask);
 void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout);
 
 VkSemaphoreSubmitInfo semaphore_submit_info(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore);
 VkCommandBufferSubmitInfo command_buffer_submit_info(VkCommandBuffer cmd);
 VkSubmitInfo2 submit_info(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* signalSemaphoreInfo, VkSemaphoreSubmitInfo* waitSemaphoreInfo);
+
+void init_triangle_pipeline();
 
 int main(int argc, char** argv)
 {
@@ -476,4 +481,9 @@ VkSubmitInfo2 submit_info(VkCommandBufferSubmitInfo* cmd,
 	info.pCommandBufferInfos = cmd;
 
 	return info;
+}
+
+void init_triangle_pipeline()
+{
+
 }

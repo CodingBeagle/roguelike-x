@@ -1,4 +1,76 @@
 #include <vk_pipelines.h>
+#include <fstream>
+
+void PipelineBuilder::set_color_attachment_format(VkFormat format)
+{
+	// The color atttachment format specifies the data layout, component order, bit depth and encoding
+	// of the image used as a color attachment in a render pass.
+	_colorAttachmentFormat = format;
+
+	// Connect the format to the renderInfo structure
+	_renderInfo.colorAttachmentCount = 1;
+	_renderInfo.pColorAttachmentFormats = &_colorAttachmentFormat;
+}
+
+void PipelineBuilder::set_depth_format(VkFormat format)
+{
+	_renderInfo.depthAttachmentFormat = format;
+}
+
+void PipelineBuilder::disable_depthtest()
+{
+	_depthStencil.depthTestEnable = VK_FALSE;
+	_depthStencil.depthWriteEnable = VK_FALSE;
+	_depthStencil.depthCompareOp = VK_COMPARE_OP_NEVER;
+	_depthStencil.depthBoundsTestEnable = VK_FALSE;
+	_depthStencil.stencilTestEnable = VK_FALSE;
+	_depthStencil.front = {};
+	_depthStencil.back = {};
+	_depthStencil.minDepthBounds = 0.f;
+	_depthStencil.maxDepthBounds = 1.f;
+}
+
+void PipelineBuilder::disable_blending()
+{
+	// Blending is the process of combining the color output from the fragment shader (source)
+	// with the color already in the framebuffer (destination).
+
+	// Specify the color components written to the framebuffer (in this case RGBA, all channels)
+	_colorBlendAttachment.colorWriteMask =
+		VK_COLOR_COMPONENT_R_BIT |
+		VK_COLOR_COMPONENT_G_BIT |
+		VK_COLOR_COMPONENT_B_BIT |
+		VK_COLOR_COMPONENT_A_BIT;
+
+	// Disable blending
+	_colorBlendAttachment.blendEnable = VK_FALSE;
+}
+
+void PipelineBuilder::set_multisampling_none()
+{
+	// Right now, multisampling is simply disabled
+	_multiSampling.sampleShadingEnable = VK_FALSE;
+	// multisamlping defaulted to no multisamlping (1 sample per pixel)
+	_multiSampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	_multiSampling.minSampleShading = 1.0f;
+	_multiSampling.pSampleMask = nullptr;
+	// no alpha to coverage either
+	_multiSampling.alphaToCoverageEnable = VK_FALSE;
+	_multiSampling.alphaToOneEnable = VK_FALSE;
+}
+
+void PipelineBuilder::set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace)
+{
+	_rasterizer.cullMode = cullMode;
+	_rasterizer.frontFace = frontFace;
+}
+
+void PipelineBuilder::set_polygon_mode(VkPolygonMode polygonMode)
+{
+	// Controls things like wireframe, solid rendering, and point rendering
+	_rasterizer.polygonMode = polygonMode;
+	_rasterizer.lineWidth = 1.f;
+}
 
 void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
 {
@@ -112,5 +184,52 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
 		return VK_NULL_HANDLE;
 	}
 
-	return VkPipeline();
+	return newPipeline;
+}
+
+bool vkutil::load_shader_module(const char* filePath, VkDevice device, VkShaderModule* outShaderModule)
+{
+	std::ifstream file(filePath, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		return false;
+	}
+
+	// find what the size of the file is by looking up the location of the cursor
+	// because the cursor is at the end, it gives the size directly in bytes
+	size_t fileSize = (size_t)file.tellg();
+
+	// spirv expects the buffer to be on uint32, so make sure to reserve an int
+	// vector big enough for the entire file
+	std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+
+	// put the file cursor at the beginning
+	file.seekg(0);
+
+	// load the entire file into the buffer
+	file.read((char*)buffer.data(), fileSize);
+
+	// close the file
+	file.close();
+
+	// Create a new shader module
+	VkShaderModuleCreateInfo shaderCreateInfo = {};
+	shaderCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	shaderCreateInfo.pNext = nullptr;
+
+	// codeSize has to be in bytes, so multiple the ints in the buffer by the size of
+	// int to know the real size of the buffer
+	shaderCreateInfo.codeSize = buffer.size() * sizeof(uint32_t);
+	shaderCreateInfo.pCode = buffer.data();
+
+	// Check that creation goes well
+	VkShaderModule shaderModule;
+	if (vkCreateShaderModule(device, &shaderCreateInfo, nullptr, &shaderModule) != VK_SUCCESS)
+	{
+		return false;
+	}
+
+	*outShaderModule = shaderModule;
+
+	return true;
 }

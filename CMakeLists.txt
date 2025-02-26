@@ -49,3 +49,12 @@ if(WIN32)
                 "$<TARGET_FILE_DIR:roguelike-x>"
     )
 endif()
+
+# Copy resources folder after build
+add_custom_command(
+    TARGET roguelike-x POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/resources"
+            "$<TARGET_FILE_DIR:roguelike-x>/resources"
+    COMMENT "Copying resources folder to the output directory"
+)
