@@ -7,6 +7,7 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "roguelike-x.h"
+#include <vk_pipelines.h>
 
 #include <vulkan/vulkan.h>
 
@@ -206,6 +207,9 @@ int main(int argc, char** argv)
 		vk_check(vkCreateSemaphore(vk_device, &semaphoreCreateInfo, nullptr, &frames[i].swapchain_semaphore));
 		vk_check(vkCreateSemaphore(vk_device, &semaphoreCreateInfo, nullptr, &frames[i].render_semaphore));
 	}
+
+	// Initialize pipeline
+	init_triangle_pipeline();
 
 	// Game Loop
 	bool should_quit = false;
@@ -485,5 +489,19 @@ VkSubmitInfo2 submit_info(VkCommandBufferSubmitInfo* cmd,
 
 void init_triangle_pipeline()
 {
+	// load shader files
+	VkShaderModule triangleFragShader;
+	if (!vkutil::load_shader_module("resources/shaders/colored_triangle.frag.spv", vk_device, &triangleFragShader))
+	{
+		panic_and_exit("Failed to load fragment shader!");
+	}
 
+	VkShaderModule triangleVertexShader;
+	if (!vkutil::load_shader_module("resources/shaders/colored_triangle.vert.spv", vk_device, &triangleFragShader))
+	{
+		panic_and_exit("Failed to load vertex shader!");
+	}
+
+	// Build the pipeline layout that controls the inputs/outputs of the shader
+	//VkPipelineLayoutCreateInfo pipeline_layout_info = 
 }

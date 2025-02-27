@@ -41,14 +41,39 @@ target_include_directories(roguelike-x PRIVATE includes)
 target_link_libraries(roguelike-x PRIVATE SDL3::SDL3 Vulkan::Vulkan)
 
 # Copy SDL3 DLL after build (Windows only)
-if(WIN32)
+add_custom_command(
+    TARGET roguelike-x POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_RUNTIME_DLLS:roguelike-x>"
+            "$<TARGET_FILE_DIR:roguelike-x>"
+)
+
+# Build shaders and output to output path
+find_program(GLSL_VALIDATOR glslangValidator HINTS $ENV{VULKAN_SDK}/Bin $ENV{VULKAN_SDK}/Bin32)
+
+file(GLOB_RECURSE GLSL_SOURCE_FILES
+    "${PROJECT_SOURCE_DIR}/resources/shaders/*.frag"
+    "${PROJECT_SOURCE_DIR}/resources/shaders/*.vert")
+
+foreach(GLSL ${GLSL_SOURCE_FILES})
+    message(STATUS "BUILDING SHADER")
+    get_filename_component(FILE_NAME ${GLSL} NAME)
+    set(SPIRV "${PROJECT_SOURCE_DIR}/resources/shaders/${FILE_NAME}.spv")
+    message(STATUS ${GLSL})
+    message(STATUS COMMAND ${GLSL_VALIDATOR} -v ${GLSL} -o ${SPIRV})
     add_custom_command(
-        TARGET roguelike-x POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_RUNTIME_DLLS:roguelike-x>"
-                "$<TARGET_FILE_DIR:roguelike-x>"
-    )
-endif()
+        OUTPUT ${SPIRV}
+        COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
+        DEPENDS ${GLSL})
+    list(APPEND SPIRV_BINARY_FILES ${SPIRV})
+endforeach(GLSL)
+
+add_custom_target(
+    Shaders
+    DEPENDS ${SPIRV_BINARY_FILES}
+)
+
+add_dependencies(roguelike-x Shaders)
 
 # Copy resources folder after build
 add_custom_command(
