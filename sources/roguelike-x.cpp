@@ -497,7 +497,7 @@ void init_triangle_pipeline()
 	}
 
 	VkShaderModule triangleVertexShader;
-	if (!vkutil::load_shader_module("resources/shaders/colored_triangle.vert.spv", vk_device, &triangleFragShader))
+	if (!vkutil::load_shader_module("resources/shaders/colored_triangle.vert.spv", vk_device, &triangleVertexShader))
 	{
 		panic_and_exit("Failed to load vertex shader!");
 	}
