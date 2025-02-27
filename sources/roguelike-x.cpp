@@ -503,5 +503,25 @@ void init_triangle_pipeline()
 	}
 
 	// Build the pipeline layout that controls the inputs/outputs of the shader
-	//VkPipelineLayoutCreateInfo pipeline_layout_info = 
+	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info();
+	vk_check(vkCreatePipelineLayout(vk_device, &pipeline_layout_info, nullptr, &_trianglePipelineLayout));
+
+	PipelineBuilder pipelineBuilder;
+
+	pipelineBuilder._pipelineLayout = _trianglePipelineLayout;
+	pipelineBuilder.set_shaders(triangleVertexShader, triangleFragShader);
+
+	// Draw filled triangles
+	pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+	pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+
+	pipelineBuilder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+
+	pipelineBuilder.set_multisampling_none();
+
+	pipelineBuilder.disable_blending();
+
+	pipelineBuilder.disable_depthtest();
+
+	// Connect the image format we will draw into, from draw image
 }

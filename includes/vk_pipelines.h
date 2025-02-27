@@ -9,6 +9,7 @@
 #include <vector>
 
 class PipelineBuilder {
+public:
 	std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
 
 	VkPipelineInputAssemblyStateCreateInfo _inputAssembly;
