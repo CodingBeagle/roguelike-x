@@ -12,6 +12,7 @@
 #include <VkBootstrap.h>
 #include <iostream>
 #include <deletionqueue.h>
+#include <vk_images.h>
 
 // When using VMA it is required to define VMA_IMPLEMENTATION a single time
 #define VMA_IMPLEMENTATION
@@ -334,28 +335,35 @@ int main(int argc, char** argv)
 		cmd_begin_info.pInheritanceInfo = nullptr;
 		cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
+		_drawExtent.width = _drawImage.imageExtent.width;
+		_drawExtent.height = _drawImage.imageExtent.height;
+
 		// Start command buffer recording
 		vk_check(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-		// Make the swapchain image into writeable mode before rendering
-		// VK_IMAGE_LAYOUT_UNDEFINED = "we dont care" layout. You can use it to indicate you don't care about the current data
-		// in the image, and that you are fine with the GPU destroying it.
-		// VK_IMAGE_LAYOUT_GENERAL = General purpose layout allowing reading and writing from the image.
-		transition_image(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+		// Transition our main draw image into general layout so we can write into it
+		// We will overwrite it all so we dont care about what the older layout was
+		transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-		// Make a clear-color from frame number. This will flash with a 120 frame period.
+		//make a clear-color from frame number. This will flash with a 120 frame period.
 		VkClearColorValue clearValue;
 		float flash = std::abs(std::sin(frame_number / 120.f));
 		clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
 
 		VkImageSubresourceRange clearRange = image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
 
-		// Clear image
-		vkCmdClearColorImage(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+		//clear image
+		vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
-		// Make the swapchain image into presentable mode
-		// VK_IMAGE_LAYOUT_PRESENT_SRC_KHR = The only image layout the swapchain allows for presenting to the screen.
-		transition_image(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		// Transition the draw image and the swapchain image into their correct transfer layouts
+		transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		transition_image(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+		// Execute a copy from the draw image into the swapchain
+		vkutil::copy_image_to_image(cmd, _drawImage.image, vk_swapchain_images[swapchain_image_index], _drawExtent, vk_swapchain_extent);
+
+		// Set swapchain image layout to present so we can show it on the screen
+		transition_image(cmd, vk_swapchain_images[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 		// Finalize the command buffer (we can no longer add commands, but it can now be executed)
 		vk_check(vkEndCommandBuffer(cmd));

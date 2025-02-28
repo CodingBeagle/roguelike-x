@@ -31,7 +31,7 @@ add_executable(roguelike-x
     "includes/vk_initializers.h"
     "includes/deletionqueue.h"
     "sources/deletionqueue.cpp"
-    "includes/vk_mem_alloc.h" "includes/vk_types.h")
+    "includes/vk_mem_alloc.h" "includes/vk_types.h" "includes/vk_images.h" "sources/vk_images.cpp")
 
 # Set C++ standard
 set_target_properties(roguelike-x PROPERTIES CXX_STANDARD 20)
