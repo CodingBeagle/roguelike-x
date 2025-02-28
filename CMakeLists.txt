@@ -54,6 +54,8 @@ add_custom_command(
 )
 
 # Build shaders and output to output path
+# This could probably be improved by moving pre-compilation of shaders to actual engine code
+# Instead of doing it with cmake
 find_program(GLSL_VALIDATOR glslangValidator HINTS $ENV{VULKAN_SDK}/Bin $ENV{VULKAN_SDK}/Bin32)
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES

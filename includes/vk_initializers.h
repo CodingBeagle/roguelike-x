@@ -7,4 +7,5 @@ namespace vkinit {
 	VkImageViewCreateInfo imageview_create_info(VkFormat format, VkImage image, VkImageAspectFlags flags);
 	VkPipelineLayoutCreateInfo pipeline_layout_create_info();
 	VkPipelineShaderStageCreateInfo pipeline_shader_stage_create_info(VkShaderStageFlagBits stage, VkShaderModule shaderModule, const char* entry = "main");
+	VkRenderingAttachmentInfo attachment_info(VkImageView imageView, VkClearValue* clear, VkImageLayout layout);
 }

@@ -274,7 +274,7 @@ int main(int argc, char** argv)
 	}
 
 	// Initialize pipeline
-	//init_triangle_pipeline();
+	init_triangle_pipeline();
 
 	// Game Loop
 	bool should_quit = false;
@@ -354,6 +354,9 @@ int main(int argc, char** argv)
 
 		//clear image
 		vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+		// Begin a render pass connected to our draw image
+		//VkRenderingAttachmentInfo colorAttachment = v
 
 		// Transition the draw image and the swapchain image into their correct transfer layouts
 		transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -604,4 +607,18 @@ void init_triangle_pipeline()
 	pipelineBuilder.disable_depthtest();
 
 	// Connect the image format we will draw into, from draw image
+	pipelineBuilder.set_color_attachment_format(_drawImage.imageFormat);
+	pipelineBuilder.set_depth_format(VK_FORMAT_UNDEFINED);
+
+	// finally build the pipeline
+	_trianglePipeline = pipelineBuilder.build_pipeline(vk_device);
+
+	// clean structure
+	vkDestroyShaderModule(vk_device, triangleFragShader, nullptr);
+	vkDestroyShaderModule(vk_device, triangleVertexShader, nullptr);
+
+	_mainDeletionQueue.push_function([&]() {
+		vkDestroyPipelineLayout(vk_device, _trianglePipelineLayout, nullptr);
+		vkDestroyPipeline(vk_device, _trianglePipeline, nullptr);
+	});
 }
