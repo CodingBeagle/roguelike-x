@@ -6,12 +6,17 @@
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_vulkan.h>
 
-#include "roguelike-x.h"
-#include <vk_pipelines.h>
-
 #include <vulkan/vulkan.h>
 
+#include <vk_pipelines.h>
 #include <VkBootstrap.h>
+#include <iostream>
+#include <deletionqueue.h>
+
+// When using VMA it is required to define VMA_IMPLEMENTATION a single time
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
+#include <vk_types.h>
 
 using namespace std;
 
@@ -24,9 +29,12 @@ struct FrameData {
 	VkSemaphore swapchain_semaphore;
 	VkSemaphore render_semaphore;
 	VkFence render_fence;
+	DeletionQueue _deletionQueue;
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
+
+DeletionQueue _mainDeletionQueue;
 
 VkInstance vk_instance;
 VkDebugUtilsMessengerEXT vk_debug_messenger;
@@ -59,6 +67,11 @@ void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currentL
 VkSemaphoreSubmitInfo semaphore_submit_info(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore);
 VkCommandBufferSubmitInfo command_buffer_submit_info(VkCommandBuffer cmd);
 VkSubmitInfo2 submit_info(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* signalSemaphoreInfo, VkSemaphoreSubmitInfo* waitSemaphoreInfo);
+
+AllocatedImage _drawImage{};
+VkExtent2D _drawExtent{};
+
+VmaAllocator _allocator;
 
 void init_triangle_pipeline();
 
@@ -131,6 +144,19 @@ int main(int argc, char** argv)
 	vk_device = vkbDevice.device;
 	vk_physical_device = physicalDevice.physical_device;
 
+	// Initialize VMA
+	VmaAllocatorCreateInfo allocatorInfo = {};
+	allocatorInfo.physicalDevice = physicalDevice;
+	allocatorInfo.device = vk_device;
+	allocatorInfo.instance = vk_instance;
+	allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
+	vk_check(vmaCreateAllocator(&allocatorInfo, &_allocator));
+
+	_mainDeletionQueue.push_function([&]() {
+		vmaDestroyAllocator(_allocator);
+		});
+
 	// Create Vulkan swapchain
 	vkb::SwapchainBuilder swapchainBuilder{
 		vk_physical_device,
@@ -155,6 +181,44 @@ int main(int argc, char** argv)
 	vk_swapchain = vkbSwapchain.swapchain;
 	vk_swapchain_images = vkbSwapchain.get_images().value();
 	vk_swapchain_imageviews = vkbSwapchain.get_image_views().value();
+
+	// Draw image size will match the window
+	VkExtent3D drawImageExtent = {};
+	drawImageExtent.width = 800;
+	drawImageExtent.height = 600;
+	drawImageExtent.depth = 1;
+
+	_drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+	_drawImage.imageExtent = drawImageExtent;
+
+	// All images and buffers need to specify usage flags.
+	// These allow the driver to perform optimizations in the background depending on what that
+	// buffer or image is going to do later.
+	VkImageUsageFlags drawImageUsages{};
+	drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	drawImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
+	drawImageUsages |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+	VkImageCreateInfo rimg_info = vkinit::image_create_info(_drawImage.imageFormat, drawImageUsages, drawImageExtent);
+
+	// For the draw image, we want to allocate it from GPU local memory
+	VmaAllocationCreateInfo rimg_allocinfo = {};
+	rimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	rimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	// Allocate and create the image
+	vk_check(vmaCreateImage(_allocator, &rimg_info, &rimg_allocinfo, &_drawImage.image, &_drawImage.allocation, nullptr));
+
+	// Build a image-view for the draw image to use for rendering
+	VkImageViewCreateInfo rview_info = vkinit::imageview_create_info(_drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vk_check(vkCreateImageView(vk_device, &rview_info, nullptr, &_drawImage.imageView));
+
+	// Add to deletion queues
+	_mainDeletionQueue.push_function([=]() {
+		vkDestroyImageView(vk_device, _drawImage.imageView, nullptr);
+		vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+	});
 
 	// Get queue that supports all types of commands
 	graphics_queue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
@@ -209,7 +273,7 @@ int main(int argc, char** argv)
 	}
 
 	// Initialize pipeline
-	init_triangle_pipeline();
+	//init_triangle_pipeline();
 
 	// Game Loop
 	bool should_quit = false;
@@ -235,6 +299,9 @@ int main(int argc, char** argv)
 
 		// Fences have to be reset between uses, you can't use the same fence on multiple GPU commands without resetting
 		vk_check(vkResetFences(vk_device, 1, &get_current_frame().render_fence));
+
+		// Flush Vulkan object queue for the frame
+		get_current_frame()._deletionQueue.flush();
 
 		// Request image from the swapchain to draw to
 		// vkAcquireNextImageKHR will request an image index from the swapchain.
@@ -346,7 +413,12 @@ int main(int argc, char** argv)
 		vkDestroyFence(vk_device, frames[i].render_fence, nullptr);
 		vkDestroySemaphore(vk_device, frames[i].render_semaphore, nullptr);
 		vkDestroySemaphore(vk_device, frames[i].swapchain_semaphore, nullptr);
+
+		frames[i]._deletionQueue.flush();
 	}
+
+	// Flush the global deletion queue
+	_mainDeletionQueue.flush();
 
 	// Destroy swapchain
 	vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);

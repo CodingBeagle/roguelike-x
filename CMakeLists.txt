@@ -23,10 +23,15 @@ FetchContent_MakeAvailable(SDL3)
 # Add executable
 add_executable(roguelike-x
     "sources/roguelike-x.cpp"
-    "sources/roguelike-x.h"
     "sources/VkBootstrap.cpp"
     "includes/VkBootstrapDispatch.h"
- "sources/vk_pipelines.cpp" "includes/vk_pipelines.h" "sources/vk_initializers.cpp" "includes/vk_initializers.h")
+    "sources/vk_pipelines.cpp"
+    "includes/vk_pipelines.h"
+    "sources/vk_initializers.cpp"
+    "includes/vk_initializers.h"
+    "includes/deletionqueue.h"
+    "sources/deletionqueue.cpp"
+    "includes/vk_mem_alloc.h" "includes/vk_types.h")
 
 # Set C++ standard
 set_target_properties(roguelike-x PROPERTIES CXX_STANDARD 20)
